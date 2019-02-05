@@ -132,11 +132,11 @@ col_mean(FullList, Col) ->
 esq(X) ->
   N = length(X),
   D = length(lists:nth(1, X)),
-  J2s = lists:seq(1, N),
+  J2s = lists:seq(1, D),
   [single_col(X, J2, N, D) || J2 <- J2s].
 
 single_col(Matrix, J2, N, D) ->
-  J1s = lists:seq(1,D),
+  J1s = lists:seq(1, D),
   [single_place(Matrix, J1, J2, N) || J1 <- J1s].
 
 single_place(Matrix, J1, J2, N) -> 
@@ -189,18 +189,20 @@ cov(W, Key) ->
     fun(Result) -> cov_root(Result) end
   ).
 
+cov_leaf([]) -> none;
+
 cov_leaf(Matrix) -> esq2(Matrix).
 
 esq2(X) ->
   N = length(X),
   D = length(lists:nth(1, X)),
-  J2s = lists:seq(1, N),
+  J2s = lists:seq(1, D),
   Var_sums = [single_col2(X, J2, D) || J2 <- J2s],
   Mean_sums = vector_sum(X),
   {Mean_sums, Var_sums, N}.
 
 single_col2(Matrix, J2, D) ->
-  J1s = lists:seq(1,D),
+  J1s = lists:seq(1, D),
   [single_place2(Matrix, J1, J2) || J1 <- J1s].
 
 single_place2(Matrix, J1, J2) -> 
@@ -224,22 +226,22 @@ cov_combine(Left, Right) ->
   end.
 
 combine({Mean1, Var1, N1}, {Mean2, Var2, N2}) ->
-  Mean_sums = vector_sum(Mean1, Mean2),
-  Var_sums = lists:zipwith(fun(X,Y) -> vector_sum(X,Y) end, Var1, Var2),
+  Mean_sums = vector_sum([Mean1, Mean2]),
+  Var_sums = lists:zipwith(fun(X,Y) -> vector_sum([X,Y]) end, Var1, Var2),
   {Mean_sums, Var_sums, N1 + N2}.
 
 vector_sum([]) ->
   [];
 
+vector_sum([H|[]]) ->
+  H;
+
 vector_sum([H|T]) ->
   vector_sum(H, T).
 
-vector_sum(First, []) -> 
-  First;
-
 vector_sum(First, [H|T]) ->
   New = lists:zipwith(fun(X,Y) -> X+Y end, First, H),
-  vector_sum(New, T).
+  vector_sum([New|T]).
 
 matrix_map(F, Matrix) ->
   lists:map(fun(X) -> lists:map(F, X) end, Matrix).
