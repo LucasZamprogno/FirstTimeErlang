@@ -1,10 +1,10 @@
 -module(hw1).
 
--export([kth_largest/2]).  % for Q1
+-export([kth_largest/2, worst_case/2]).  % for Q1
 -export([count_make/0, count_make/1, count_proc/1, count_next/1, count_end/1]). % for Q2
 -export([mean/1, esq/1, cov/1, cov/2]). % for Q3
 
--export([close/2, close/3, cov_check/2, cov_check/3, cov_data/4, cov_leaf/1]). % help with testing cov(W, Key)
+-export([close/2, close/3, cov_check/2, cov_check/3, cov_data/4]). % help with testing cov(W, Key)
 -export([your_answer/2]). % throws an error if you try executing one of the stubs
 
 % kth_largest(K, List) -> the K^th largest element of List.
@@ -38,7 +38,9 @@ trimK(0, List) ->
 trimK(K, [_|T]) ->
   trimK(K-1, T).
 
-
+worst_case(N, K) ->
+  List = lists:seq(1, N), % Ascending list
+  kth_largest(K, List).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %                                                                          %
@@ -47,7 +49,7 @@ trimK(K, [_|T]) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 % count_make(InitialCount) -> CounterProcess
-count_make(InitialCount) ->
+count_make(InitialCount) when is_integer(InitialCount) ->
   spawn(?MODULE, count_proc, [InitialCount]).
 
 % count_make(): equivalent to count_make(0)
@@ -71,7 +73,7 @@ count_proc(CurrentCount) ->
 %   Interface function for a counter process.
 %   Send CountPid a 'next' message to increment the counter.
 %   Receive the current (i.e. pre-increment) value of the counter and return it.
-count_next(CounterPid) ->
+count_next(CounterPid) when is_pid(CounterPid) ->
   CounterPid ! {count, self()},
   receive
     {count, CounterPid, CurrentCount} ->
@@ -80,7 +82,7 @@ count_next(CounterPid) ->
 
 % count_next(CounterPid) -> ok.
 %   Terminate a counter process.
-count_end(CounterPid) ->
+count_end(CounterPid) when is_pid(CounterPid) ->
   CounterPid ! exit.
 
 % You will probably want to write one or more functions that
@@ -109,12 +111,8 @@ count_end(CounterPid) ->
 %             [2,  7,  18] ]
 %     Then, mean(X) = [3.75, 7.25, 6.75].
 mean(List) ->
-  D = length(lists:nth(1, List)),
-  [col_mean(List, ColNum) || ColNum <- lists:seq(1, D)].
-
-col_mean(FullList, Col) ->
-  NewList = [lists:nth(Col, X) || X <- FullList],
-  lists:sum(NewList) / length(NewList).
+  N = length(List),
+  [X/N || X <- vector_sum(List)].
 
 % In my solution, I wrote a few functions for operations on vectors and
 %   matrices that are useful for the rest of the problem.
@@ -129,7 +127,7 @@ col_mean(FullList, Col) ->
 %     (1/N)*sum_I=1^N lists:nth(J1, lists:nth(I, X)) * lists:nth(J2, lists:nth(I, X))
 %   OTOTH, if you compute it that way, your big-O runtime will be too high because
 %   lists:nth(N, List) takes time O(N).  You should write an efficient implemention.
-esq(X) ->
+esq(X) when is_list(X) and length(X) > 0 ->
   N = length(X),
   D = length(lists:nth(1, X)),
   J2s = lists:seq(1, D),
@@ -143,7 +141,21 @@ single_place(Matrix, J1, J2, N) ->
   lists:sum([mult(X, J1, J2) || X <- Matrix]) / N.
 
 mult(X, J1, J2) ->
-  lists:nth(J1, X) * lists:nth(J2, X).
+  lists:nth(J1, X) * lists:nth(J2, X). % Need to figure out how to not do this
+
+% These ones use N-1 instead of N
+esq_cov(X) when is_list(X) and length(X) > 1 -> % Need > 1 to avoid div by 0 error
+  N = length(X),
+  D = length(lists:nth(1, X)),
+  J2s = lists:seq(1, D),
+  [single_col_cov(X, J2, N, D) || J2 <- J2s].
+
+single_col_cov(Matrix, J2, N, D) ->
+  J1s = lists:seq(1, D),
+  [single_place_cov(Matrix, J1, J2, N) || J1 <- J1s].
+
+single_place_cov(Matrix, J1, J2, N) -> 
+  lists:sum([mult(X, J1, J2) || X <- Matrix]) / (N - 1). % Adjustment
 
 % cov(X) -> COV
 %   X is a list of vectors.
@@ -153,17 +165,17 @@ mult(X, J1, J2) ->
 %   Let K be the length of each element of K.  Let 1 =< I =< J =< K.
 %   Then lists:nth(J2, lists:nth(J1, COV)) is our estimate of
 %     E[(X_J1 - E[X_J1])(X_J2 - E[X_J2])].
-cov(X) ->
+cov(X) when is_list(X) and length(X) > 1 -> % Need > 1 to avoid div by 0 error
   Means = mean(X),
-  Esq = esq(X),
+  Esq = esq_cov(X),
   J2s = lists:seq(1, length(X)),
   J1s = lists:seq(1, length(lists:nth(1, X))),
-  [[cov_val(Esq, Means, J1, J2) || J1 <- J1s] || J2 <- J2s].
+  [[cov_val(Esq, Means, J1, J2, length(Esq)) || J1 <- J1s] || J2 <- J2s].
 
-cov_val(Esq, Means, J1, J2) -> 
+cov_val(Esq, Means, J1, J2, N) -> 
   M1 = lists:nth(J2, Means),
   M2 = lists:nth(J1, Means),
-  lists:nth(J2, lists:nth(J1, Esq)) - M1 * M2.
+  lists:nth(J2, lists:nth(J1, Esq)) - (M1 * M2 * (N/(N-1))). % Adjustment
   
 % I wrote functions for cov_leaf and cov_combine to use
 %   with wtree:reduce in cov(W, Key) below.
@@ -191,32 +203,28 @@ cov(W, Key) ->
 
 cov_leaf([]) -> none;
 
-cov_leaf(Matrix) -> esq2(Matrix).
-
-esq2(X) ->
-  N = length(X),
-  D = length(lists:nth(1, X)),
+ % This is horribly duplicated but I need to not make early divisions
+cov_leaf(Matrix) -> 
+  N = length(Matrix),
+  D = length(lists:nth(1, Matrix)),
   J2s = lists:seq(1, D),
-  Var_sums = [single_col2(X, J2, D) || J2 <- J2s],
-  Mean_sums = vector_sum(X),
+  Var_sums = [single_col_par(Matrix, J2, D) || J2 <- J2s],
+  Mean_sums = vector_sum(Matrix),
   {Mean_sums, Var_sums, N}.
 
-single_col2(Matrix, J2, D) ->
+single_col_par(Matrix, J2, D) ->
   J1s = lists:seq(1, D),
-  [single_place2(Matrix, J1, J2) || J1 <- J1s].
+  [single_place_par(Matrix, J1, J2) || J1 <- J1s].
 
-single_place2(Matrix, J1, J2) -> 
-  lists:sum([mult2(X, J1, J2) || X <- Matrix]).
-
-mult2(X, J1, J2) ->
-  lists:nth(J1, X) * lists:nth(J2, X).
+single_place_par(Matrix, J1, J2) -> 
+  lists:sum([mult(X, J1, J2) || X <- Matrix]).
 
 cov_root({Means, Vars, N}) -> 
   Final_means = lists:map(fun(X) -> X/N end, Means),
   ESQ = matrix_map(fun(X) -> X/N end, Vars),
   J2s = lists:seq(1, length(ESQ)),
   J1s = lists:seq(1, length(lists:nth(1, ESQ))),
-  [[cov_val(ESQ, Final_means, J1, J2) || J1 <- J1s] || J2 <- J2s].
+  [[cov_val(ESQ, Final_means, J1, J2, N) || J1 <- J1s] || J2 <- J2s].
 
 cov_combine(Left, Right) ->
   case {Left, Right} of
