@@ -4,8 +4,10 @@
 -export([count_make/0, count_make/1, count_proc/1, count_next/1, count_end/1]). % for Q2
 -export([mean/1, esq/1, cov/1, cov/2]). % for Q3
 
--export([close/2, close/3, cov_check/2, cov_check/3, cov_data/4]). % help with testing cov(W, Key)
+-export([close/2, close/3, cov_check/2, cov_check/3, cov_data/4, cov_timer/3]). % help with testing cov(W, Key)
 -export([your_answer/2]). % throws an error if you try executing one of the stubs
+-import(misc, [rlist/1, cut/2]).
+-import(workers, [update/3]).
 
 % kth_largest(K, List) -> the K^th largest element of List.
 % If List has duplicate elements, we count each of them when determining
@@ -144,7 +146,7 @@ mult(X, J1, J2) ->
   lists:nth(J1, X) * lists:nth(J2, X). % Need to figure out how to not do this
 
 % These ones use N-1 instead of N
-esq_cov(X) when is_list(X) and length(X) > 1 -> % Need > 1 to avoid div by 0 error
+esq_cov(X) when length(X) > 1 -> % Need > 1 to avoid div by 0 error
   N = length(X),
   D = length(lists:nth(1, X)),
   J2s = lists:seq(1, D),
@@ -165,12 +167,12 @@ single_place_cov(Matrix, J1, J2, N) ->
 %   Let K be the length of each element of K.  Let 1 =< I =< J =< K.
 %   Then lists:nth(J2, lists:nth(J1, COV)) is our estimate of
 %     E[(X_J1 - E[X_J1])(X_J2 - E[X_J2])].
-cov(X) when is_list(X) and length(X) > 1 -> % Need > 1 to avoid div by 0 error
+cov(X) when length(X) > 1 -> % Need > 1 to avoid div by 0 error
   Means = mean(X),
   Esq = esq_cov(X),
-  J2s = lists:seq(1, length(X)),
-  J1s = lists:seq(1, length(lists:nth(1, X))),
-  [[cov_val(Esq, Means, J1, J2, length(Esq)) || J1 <- J1s] || J2 <- J2s].
+  N = length(Esq),
+  D = lists:seq(1, length(lists:nth(1, X))),
+  [[cov_val(Esq, Means, J1, J2, N) || J1 <- D] || J2 <- D].
 
 cov_val(Esq, Means, J1, J2, N) -> 
   M1 = lists:nth(J2, Means),
@@ -222,9 +224,8 @@ single_place_par(Matrix, J1, J2) ->
 cov_root({Means, Vars, N}) -> 
   Final_means = lists:map(fun(X) -> X/N end, Means),
   ESQ = matrix_map(fun(X) -> X/N end, Vars),
-  J2s = lists:seq(1, length(ESQ)),
-  J1s = lists:seq(1, length(lists:nth(1, ESQ))),
-  [[cov_val(ESQ, Final_means, J1, J2, N) || J1 <- J1s] || J2 <- J2s].
+  D = lists:seq(1, length(lists:nth(1, ESQ))),
+  [[cov_val(ESQ, Final_means, J1, J2, N) || J1 <- D] || J2 <- D].
 
 cov_combine(Left, Right) ->
   case {Left, Right} of
@@ -335,3 +336,10 @@ cov_check(W, N, K) ->
 % your_answer(Who, Args): a place-holder for where you need to provide a solution
 your_answer(Who, _Args) ->
   error({Who, missing_implementation}).
+
+cov_timer(N, K, P) ->
+  W = wtree:create(P),
+  Matrix = [misc:rlist(K) || _ <- lists:seq(1,N)],
+  workers:update(W, data, misc:cut(Matrix, W)),
+  wtree:retrieve(W, fun(_) -> ok end),
+  time_it:t(fun() -> cov(W, data) end).
