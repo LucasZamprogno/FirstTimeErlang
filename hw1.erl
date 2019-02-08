@@ -3,7 +3,7 @@
 -export([kth_largest/2, worst_case/2]).  % for Q1
 -export([count_make/0, count_make/1, count_proc/1, count_next/1, count_end/1]). % for Q2
 -export([mean/1, esq/1, cov/1, cov/2]). % for Q3
-
+-export([vm_sum/1]).
 -export([close/2, close/3, cov_check/2, cov_check/3, cov_data/4, cov_timer/3]). % help with testing cov(W, Key)
 -export([your_answer/2]). % throws an error if you try executing one of the stubs
 -import(misc, [rlist/1, cut/2]).
@@ -16,29 +16,28 @@
 %   kth_largest(3, [2,8,3,7,8,4,6]) -> 7
 kth_largest(K, List) when is_integer(K) andalso K > 0 andalso is_list(List) andalso length(List) >= K-> 
   Acc = lists:sort(lists:sublist(List, K)),
-  NewL = trimK(K, List),
-  [KthElem|_] = kth2(K, NewL, Acc),
+  NewL = lists:nthtail(K, List),
+  [KthElem|_] = kth2(NewL, Acc),
   KthElem.
 
-kth2(K, [H|T], Acc) -> % N times
-  kth2(K, T, maintain(H, Acc));
-kth2(_, [], Acc) -> 
+kth2([H|T], Acc) -> % N times
+  kth2(T, maintain(H, Acc));
+kth2([], Acc) -> 
   Acc.
 
-maintain(K, [H|T]) when K < H -> % Smaller than first elem
-  [H|T];
-maintain(K, [H|T]) -> 
-  maintain(K, [H], T).
-
-maintain(K, Front, [H|T]) when K >= H -> % Should run less close to K times as you progress through the list...
-  maintain(K, Front ++ [H], T);
-maintain(K, [_|T], Back) -> % K =< H, insert. These ops should be constant time I hope
-  T ++ [K|Back].
-
-trimK(0, List) ->
+maintain(X, List = [H|_]) when X < H -> % Smaller than first elem
   List;
-trimK(K, [_|T]) ->
-  trimK(K-1, T).
+maintain(X, [_|T]) -> 
+  insert(X, T).
+
+insert(X, []) ->
+  [X];
+
+insert(X, [H|T]) when X =< H ->
+  [X,H|T];
+
+insert(X, [H|T]) ->
+  [H|insert(X, T)].
 
 worst_case(N, K) ->
   List = lists:seq(1, N), % Ascending list
@@ -114,7 +113,7 @@ count_end(CounterPid) when is_pid(CounterPid) ->
 %     Then, mean(X) = [3.75, 7.25, 6.75].
 mean(List) ->
   N = length(List),
-  [X/N || X <- vector_sum(List)].
+  [X/N || X <- vm_sum(List)].
 
 % In my solution, I wrote a few functions for operations on vectors and
 %   matrices that are useful for the rest of the problem.
@@ -129,35 +128,22 @@ mean(List) ->
 %     (1/N)*sum_I=1^N lists:nth(J1, lists:nth(I, X)) * lists:nth(J2, lists:nth(I, X))
 %   OTOTH, if you compute it that way, your big-O runtime will be too high because
 %   lists:nth(N, List) takes time O(N).  You should write an efficient implemention.
-esq(X) when is_list(X) and length(X) > 0 ->
-  N = length(X),
-  D = length(lists:nth(1, X)),
-  J2s = lists:seq(1, D),
-  [single_col(X, J2, N, D) || J2 <- J2s].
 
-single_col(Matrix, J2, N, D) ->
-  J1s = lists:seq(1, D),
-  [single_place(Matrix, J1, J2, N) || J1 <- J1s].
+esq(X) when length(X) > 0 -> % Avoid div by 0
+  esq(X, 0, divide).
 
-single_place(Matrix, J1, J2, N) -> 
-  lists:sum([mult(X, J1, J2) || X <- Matrix]) / N.
+esq(X, Offset, divide) when length(X) > Offset -> % Avoid div by 0
+  N = length(X) + Offset,
+  Matrices = [esq_matrix_single_col(Col) || Col <- X],
+  Matrix = vm_sum(Matrices),
+  matrix_map(fun(Y) -> Y/N end, Matrix);
 
-mult(X, J1, J2) ->
-  lists:nth(J1, X) * lists:nth(J2, X). % Need to figure out how to not do this
+esq(X, Offset, nodivide) when length(X) > Offset -> % Avoid div by 0
+  Matrices = [esq_matrix_single_col(Col) || Col <- X],
+  vm_sum(Matrices).
 
-% These ones use N-1 instead of N
-esq_cov(X) when length(X) > 1 -> % Need > 1 to avoid div by 0 error
-  N = length(X),
-  D = length(lists:nth(1, X)),
-  J2s = lists:seq(1, D),
-  [single_col_cov(X, J2, N, D) || J2 <- J2s].
-
-single_col_cov(Matrix, J2, N, D) ->
-  J1s = lists:seq(1, D),
-  [single_place_cov(Matrix, J1, J2, N) || J1 <- J1s].
-
-single_place_cov(Matrix, J1, J2, N) -> 
-  lists:sum([mult(X, J1, J2) || X <- Matrix]) / (N - 1). % Adjustment
+esq_matrix_single_col(Col) ->
+  [[J1 * J2 || J1 <- Col] || J2 <- Col].
 
 % cov(X) -> COV
 %   X is a list of vectors.
@@ -168,17 +154,14 @@ single_place_cov(Matrix, J1, J2, N) ->
 %   Then lists:nth(J2, lists:nth(J1, COV)) is our estimate of
 %     E[(X_J1 - E[X_J1])(X_J2 - E[X_J2])].
 cov(X) when length(X) > 1 -> % Need > 1 to avoid div by 0 error
+  N = length(X),
   Means = mean(X),
-  Esq = esq_cov(X),
-  N = length(Esq),
-  D = lists:seq(1, length(lists:nth(1, X))),
-  [[cov_val(Esq, Means, J1, J2, N) || J1 <- D] || J2 <- D].
+  Mean_map = mean_map(Means, N),
+  Esq = esq(X, -1, divide),
+  vm_sum([Esq, Mean_map]).
 
-cov_val(Esq, Means, J1, J2, N) -> 
-  M1 = lists:nth(J2, Means),
-  M2 = lists:nth(J1, Means),
-  lists:nth(J2, lists:nth(J1, Esq)) - (M1 * M2 * (N/(N-1))). % Adjustment
-  
+mean_map(Means, N) -> 
+  [[ -((N/(N-1)) * (M1 * M2)) || M2 <- Means] || M1 <- Means].
 % I wrote functions for cov_leaf and cov_combine to use
 %   with wtree:reduce in cov(W, Key) below.
 
@@ -205,27 +188,18 @@ cov(W, Key) ->
 
 cov_leaf([]) -> none;
 
- % This is horribly duplicated but I need to not make early divisions
 cov_leaf(Matrix) -> 
   N = length(Matrix),
-  D = length(lists:nth(1, Matrix)),
-  J2s = lists:seq(1, D),
-  Var_sums = [single_col_par(Matrix, J2, D) || J2 <- J2s],
-  Mean_sums = vector_sum(Matrix),
+  Var_sums = esq(Matrix, 0, nodivide),
+  Mean_sums = vm_sum(Matrix),
   {Mean_sums, Var_sums, N}.
-
-single_col_par(Matrix, J2, D) ->
-  J1s = lists:seq(1, D),
-  [single_place_par(Matrix, J1, J2) || J1 <- J1s].
-
-single_place_par(Matrix, J1, J2) -> 
-  lists:sum([mult(X, J1, J2) || X <- Matrix]).
 
 cov_root({Means, Vars, N}) -> 
   Final_means = lists:map(fun(X) -> X/N end, Means),
-  ESQ = matrix_map(fun(X) -> X/N end, Vars),
-  D = lists:seq(1, length(lists:nth(1, ESQ))),
-  [[cov_val(ESQ, Final_means, J1, J2, N) || J1 <- D] || J2 <- D].
+  Mean_map = mean_map(Final_means, N),
+  Div_by = N - 1, % My syntax highlighting goes nuts if this is inside the anon function
+  Esq = matrix_map(fun(X) -> X/Div_by end, Vars),
+  vm_sum([Esq, Mean_map]).
 
 cov_combine(Left, Right) ->
   case {Left, Right} of
@@ -235,25 +209,51 @@ cov_combine(Left, Right) ->
   end.
 
 combine({Mean1, Var1, N1}, {Mean2, Var2, N2}) ->
-  Mean_sums = vector_sum([Mean1, Mean2]),
-  Var_sums = lists:zipwith(fun(X,Y) -> vector_sum([X,Y]) end, Var1, Var2),
+  Mean_sums = vm_sum([Mean1, Mean2]),
+  Var_sums = lists:zipwith(fun(X,Y) -> vm_sum([X,Y]) end, Var1, Var2),
   {Mean_sums, Var_sums, N1 + N2}.
 
-vector_sum([]) ->
+vm_sum([]) ->
   [];
 
-vector_sum([H|[]]) ->
+vm_sum([H|[]]) ->
   H;
 
-vector_sum([H|T]) ->
-  vector_sum(H, T).
+vm_sum([H|T]) ->
+  vm_sum(H, T).
 
-vector_sum(First, [H|T]) ->
+vm_sum(First = [H1|_], [H2|T2]) when is_list(H1) ->
+  New = lists:zipwith(fun(X,Y) -> vm_sum([X, Y]) end, First, H2),
+  vm_sum([New|T2]);
+
+vm_sum(First, [H|T]) ->
   New = lists:zipwith(fun(X,Y) -> X+Y end, First, H),
-  vector_sum([New|T]).
+  vm_sum([New|T]).
 
 matrix_map(F, Matrix) ->
   lists:map(fun(X) -> lists:map(F, X) end, Matrix).
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 % cov_data(W, N, K, Key)
 %   Create random data for testing cov(W, Key).
 %   The data will have a total of N vectors, distributed across the workers of W.
