@@ -3,7 +3,6 @@
 -export([kth_largest/2, worst_case/2]).  % for Q1
 -export([count_make/0, count_make/1, count_proc/1, count_next/1, count_end/1]). % for Q2
 -export([mean/1, esq/1, cov/1, cov/2]). % for Q3
--export([cov_table/0, pcov_table/0, kth_table/0]).
 -export([close/2, close/3, cov_check/2, cov_check/3, cov_data/4, cov_timer/3]). % help with testing cov(W, Key)
 -export([your_answer/2]). % throws an error if you try executing one of the stubs
 -import(misc, [rlist/1, cut/2]).
