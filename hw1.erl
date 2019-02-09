@@ -3,17 +3,12 @@
 -export([kth_largest/2, worst_case/2]).  % for Q1
 -export([count_make/0, count_make/1, count_proc/1, count_next/1, count_end/1]). % for Q2
 -export([mean/1, esq/1, cov/1, cov/2]). % for Q3
--export([vm_sum/1]).
+-export([cov_table/0, pcov_table/0, kth_table/0]).
 -export([close/2, close/3, cov_check/2, cov_check/3, cov_data/4, cov_timer/3]). % help with testing cov(W, Key)
 -export([your_answer/2]). % throws an error if you try executing one of the stubs
 -import(misc, [rlist/1, cut/2]).
 -import(workers, [update/3]).
 
-% kth_largest(K, List) -> the K^th largest element of List.
-% If List has duplicate elements, we count each of them when determining
-% the Kth largest.  Examples:
-%   hw1:kth_largest(3, [2,5,1,2,3,7,6]) -> 5
-%   kth_largest(3, [2,8,3,7,8,4,6]) -> 7
 kth_largest(K, List) when is_integer(K) andalso K > 0 andalso is_list(List) andalso length(List) >= K-> 
   Acc = lists:sort(lists:sublist(List, K)),
   NewL = lists:nthtail(K, List),
@@ -43,23 +38,14 @@ worst_case(N, K) ->
   List = lists:seq(1, N), % Ascending list
   kth_largest(K, List).
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%                                                                          %
-% Functions for Q2                                                         %
-%                                                                          %
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Functions for Q2
 
-% count_make(InitialCount) -> CounterProcess
 count_make(InitialCount) when is_integer(InitialCount) ->
   spawn(?MODULE, count_proc, [InitialCount]).
 
-% count_make(): equivalent to count_make(0)
 count_make() ->
   count_make(0).
 
-% count_proc(CurrentCount) -> ok
-%   The tail-recursive function for a counter-process.
-%   N is the current count.
 count_proc(CurrentCount) ->
   receive
     {count, ReplyTo} ->
@@ -69,11 +55,6 @@ count_proc(CurrentCount) ->
       ok
   end.
 
-
-% count_next(CounterPid)
-%   Interface function for a counter process.
-%   Send CountPid a 'next' message to increment the counter.
-%   Receive the current (i.e. pre-increment) value of the counter and return it.
 count_next(CounterPid) when is_pid(CounterPid) ->
   CounterPid ! {count, self()},
   receive
@@ -81,53 +62,16 @@ count_next(CounterPid) when is_pid(CounterPid) ->
       CurrentCount
   end.
 
-% count_next(CounterPid) -> ok.
-%   Terminate a counter process.
 count_end(CounterPid) when is_pid(CounterPid) ->
   CounterPid ! exit.
 
-% You will probably want to write one or more functions that
-%   create and use a counter process (or counter processes)
-%   to determine the order in which a list comprehension evaluates
-%  
+% Functions for Q3
 
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%                                                                          %
-% Functions for Q3                                                         %
-%                                                                          %
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-% mean(X) -> Mean
-%   In my implementation, I allow X to be a list of numbers, or a nested
-%   list (of nubmers).
-%   If X is a list of numbers, e.g. [1, 3, 5, 7], then mean(X) is the
-%     obvious mean, e.g. mean([1, 3, 5, 7]) -> 4.
-%   If X is a list of lists, each element of X must have the same "shape".
-%     In this case, we compute the element-wise mean of the elements of X.
-%     For example if
-%       X = [ [1,  2,   3],
-%             [4,  8,  10],
-%             [8, 12,  -4],
-%             [2,  7,  18] ]
-%     Then, mean(X) = [3.75, 7.25, 6.75].
 mean(List) ->
   N = length(List),
   [X/N || X <- vm_sum(List)].
 
-% In my solution, I wrote a few functions for operations on vectors and
-%   matrices that are useful for the rest of the problem.
-
-% esq(X) -> E12
-%   X is a list of vectors.
-%     I.e. each element of X is a list of numbers, and all of these lists
-%     must be of the same length.
-%   E12 is an upper triangular matrix.
-%   Let K be the length of each element of K.  Let 1 =< I =< J =< K.
-%   Then lists:nth(J2, lists:nth(J1, E12)) is
-%     (1/N)*sum_I=1^N lists:nth(J1, lists:nth(I, X)) * lists:nth(J2, lists:nth(I, X))
-%   OTOTH, if you compute it that way, your big-O runtime will be too high because
-%   lists:nth(N, List) takes time O(N).  You should write an efficient implemention.
+% ESQ (and friends)
 
 esq(X) when length(X) > 0 -> % Avoid div by 0
   esq(X, 0, divide).
@@ -145,14 +89,6 @@ esq(X, Offset, nodivide) when length(X) > Offset -> % Avoid div by 0
 esq_matrix_single_col(Col) ->
   [[J1 * J2 || J1 <- Col] || J2 <- Col].
 
-% cov(X) -> COV
-%   X is a list of vectors.
-%     I.e. each element of X is a list of numbers, and all of these lists
-%     must be of the same length.
-%   COV is an upper triangular matrix.
-%   Let K be the length of each element of K.  Let 1 =< I =< J =< K.
-%   Then lists:nth(J2, lists:nth(J1, COV)) is our estimate of
-%     E[(X_J1 - E[X_J1])(X_J2 - E[X_J2])].
 cov(X) when length(X) > 1 -> % Need > 1 to avoid div by 0 error
   N = length(X),
   Means = mean(X),
@@ -162,23 +98,9 @@ cov(X) when length(X) > 1 -> % Need > 1 to avoid div by 0 error
 
 mean_map(Means, N) -> 
   [[ -((N/(N-1)) * (M1 * M2)) || M2 <- Means] || M1 <- Means].
-% I wrote functions for cov_leaf and cov_combine to use
-%   with wtree:reduce in cov(W, Key) below.
 
-% cov(W, Key) -> COV
-%   W is a worker tree (i.e. created using wtree:create).
-%   Key is the key with which a distributed list of vectors is associated.
-%   For example, let X be a list of 1000 vectors, where each vector has 5 elements.
-%   If W has 10 worker processes, we could store 100 elements of X in the ProcState
-%   of each worker process.  Let's assume that these pieces of X are associated
-%   with the Key, 'data'.  Then, each process can get its piece of X with the expression
-%     workers:get(ProcState, data)
-%   Or, more generally,
-%     workers:get(ProcState, Key)
-%
-%   cov(W, Key) should use wtree:reduce/3 or wtree:reduce/4 to compute the covariance
-%   matrix for this data.  Just as with cov(X), cov(W, Key) should return an
-%   upper triangular matrix.
+% Parallel cov
+
 cov(W, Key) ->
   wtree:reduce(W,
     fun(ProcState) -> cov_leaf(wtree:get(ProcState, Key)) end,  % Leaf
@@ -213,6 +135,8 @@ combine({Mean1, Var1, N1}, {Mean2, Var2, N2}) ->
   Var_sums = lists:zipwith(fun(X,Y) -> vm_sum([X,Y]) end, Var1, Var2),
   {Mean_sums, Var_sums, N1 + N2}.
 
+% Helpers
+
 vm_sum([]) ->
   [];
 
@@ -240,20 +164,52 @@ matrix_map(F, Matrix) ->
 
 
 
+cov_table() ->
+  N_consistent = 20000,
+  Ks = lists:seq(10, 100, 10),
+  K_data = [[misc:rlist(K) || _ <- lists:seq(1, N_consistent)] || K <- Ks],
+  %K_consistent = 20,
+  %Ns = lists:seq(50000, 500000, 50000),
+  %N_data = [[misc:rlist(K_consistent) || _ <- lists:seq(1, N)] || N <- Ns],
+  time_cov(K_data).
 
 
+time_cov([]) -> ok;
 
+time_cov([H|T]) ->
+  Time = {time_it:t(fun() -> cov(H) end)},
+  io:format("~p~n", [Time]),
+  time_cov(T).
 
+pcov_table() ->
+  Data = [misc:rlist(30) || _ <- lists:seq(1, 50000)],
+  Ps = [1, 2, 3, 4, 5, 6, 12, 24, 36, 48],
+  time_pcov(Ps, Data),
+  ok.
 
+time_pcov([], _) -> ok;
 
+time_pcov([H|T], Data) ->
+  W = wtree:create(H),
+  workers:update(W, data, misc:cut(Data, W)),
+  Time = time_it:t(fun() -> cov(W, data) end),
+  io:format("~p~n", [Time]),
+  wtree:reap(W),
+  time_pcov(T, Data).
+  
 
+kth_table() ->
+  Ns = lists:seq(50000, 500000, 50000),
+  Ks = lists:seq(100, 1000, 100),
+  time_kth(Ks).
 
+time_kth([]) -> ok;
 
-
-
-
-
-
+time_kth([H|T]) ->
+  Data = lists:seq(1, 250000),
+  Time = time_it:t(fun() -> kth_largest(H, Data) end),
+  io:format("~p~n", [Time]),
+  time_kth(T).
 % cov_data(W, N, K, Key)
 %   Create random data for testing cov(W, Key).
 %   The data will have a total of N vectors, distributed across the workers of W.
