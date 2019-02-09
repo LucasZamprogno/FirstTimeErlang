@@ -164,52 +164,12 @@ matrix_map(F, Matrix) ->
 
 
 
-cov_table() ->
-  N_consistent = 20000,
-  Ks = lists:seq(10, 100, 10),
-  K_data = [[misc:rlist(K) || _ <- lists:seq(1, N_consistent)] || K <- Ks],
-  %K_consistent = 20,
-  %Ns = lists:seq(50000, 500000, 50000),
-  %N_data = [[misc:rlist(K_consistent) || _ <- lists:seq(1, N)] || N <- Ns],
-  time_cov(K_data).
 
 
-time_cov([]) -> ok;
 
-time_cov([H|T]) ->
-  Time = {time_it:t(fun() -> cov(H) end)},
-  io:format("~p~n", [Time]),
-  time_cov(T).
 
-pcov_table() ->
-  Data = [misc:rlist(30) || _ <- lists:seq(1, 50000)],
-  Ps = [1, 2, 3, 4, 5, 6, 12, 24, 36, 48],
-  time_pcov(Ps, Data),
-  ok.
 
-time_pcov([], _) -> ok;
 
-time_pcov([H|T], Data) ->
-  W = wtree:create(H),
-  workers:update(W, data, misc:cut(Data, W)),
-  Time = time_it:t(fun() -> cov(W, data) end),
-  io:format("~p~n", [Time]),
-  wtree:reap(W),
-  time_pcov(T, Data).
-  
-
-kth_table() ->
-  Ns = lists:seq(50000, 500000, 50000),
-  Ks = lists:seq(100, 1000, 100),
-  time_kth(Ks).
-
-time_kth([]) -> ok;
-
-time_kth([H|T]) ->
-  Data = lists:seq(1, 250000),
-  Time = time_it:t(fun() -> kth_largest(H, Data) end),
-  io:format("~p~n", [Time]),
-  time_kth(T).
 % cov_data(W, N, K, Key)
 %   Create random data for testing cov(W, Key).
 %   The data will have a total of N vectors, distributed across the workers of W.
